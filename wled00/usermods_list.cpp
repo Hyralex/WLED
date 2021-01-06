@@ -14,7 +14,7 @@
 
 void registerUsermods()
 {
-  /*
+/*
    * Add your usermod class name here
    * || || ||
    * \/ \/ \/

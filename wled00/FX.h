@@ -52,6 +52,9 @@
 #define MAX(a,b) ((a)>(b)?(a):(b))
 #endif
 
+/* Disable effects with high flash memory usage (currently TV simulator) - saves 18.5kB */
+//#define WLED_DISABLE_FX_HIGH_FLASH_USE
+
 /* Not used in all effects yet */
 #define WLED_FPS         42
 #define FRAMETIME        (1000/WLED_FPS)
@@ -116,7 +119,7 @@
 #define IS_REVERSE      ((SEGMENT.options & REVERSE     ) == REVERSE     )
 #define IS_SELECTED     ((SEGMENT.options & SELECTED    ) == SELECTED    )
 
-#define MODE_COUNT  114
+#define MODE_COUNT  118
 
 #define FX_MODE_STATIC                   0
 #define FX_MODE_BLINK                    1
@@ -156,7 +159,7 @@
 #define FX_MODE_TRAFFIC_LIGHT           35
 #define FX_MODE_COLOR_SWEEP_RANDOM      36
 #define FX_MODE_RUNNING_COLOR           37
-#define FX_MODE_RUNNING_RED_BLUE        38
+#define FX_MODE_AURORA                  38
 #define FX_MODE_RUNNING_RANDOM          39
 #define FX_MODE_LARSON_SCANNER          40
 #define FX_MODE_COMET                   41
@@ -232,6 +235,10 @@
 #define FX_MODE_CHUNCHUN               111
 #define FX_MODE_DANCING_SHADOWS        112
 #define FX_MODE_WASHING_MACHINE        113
+#define FX_MODE_CANDY_CANE             114
+#define FX_MODE_BLENDS                 115
+#define FX_MODE_TV_SIMULATOR           116
+#define FX_MODE_DYNAMIC_SMOOTH         117
 
 class WS2812FX {
   typedef uint16_t (WS2812FX::*mode_ptr)(void);
@@ -316,9 +323,31 @@ class WS2812FX {
         WS2812FX::_usedSegmentData -= _dataLen;
         _dataLen = 0;
       }
-      void reset(){next_time = 0; step = 0; call = 0; aux0 = 0; aux1 = 0; deallocateData();}
+
+      /** 
+       * If reset of this segment was request, clears runtime
+       * settings of this segment.
+       * Must not be called while an effect mode function is running
+       * because it could access the data buffer and this method 
+       * may free that data buffer.
+       */
+      void resetIfRequired() {
+        if (_requiresReset) {
+          next_time = 0; step = 0; call = 0; aux0 = 0; aux1 = 0; 
+          deallocateData();
+          _requiresReset = false;
+        }
+      }
+
+      /** 
+       * Flags that before the next effect is calculated,
+       * the internal segment state should be reset. 
+       * Call resetIfRequired before calling the next effect function.
+       */
+      void reset() { _requiresReset = true; }
       private:
         uint16_t _dataLen = 0;
+        bool _requiresReset = false;
     } segment_runtime;
 
     WS2812FX() {
@@ -359,7 +388,7 @@ class WS2812FX {
       _mode[FX_MODE_TRAFFIC_LIGHT]           = &WS2812FX::mode_traffic_light;
       _mode[FX_MODE_COLOR_SWEEP_RANDOM]      = &WS2812FX::mode_color_sweep_random;
       _mode[FX_MODE_RUNNING_COLOR]           = &WS2812FX::mode_running_color;
-      _mode[FX_MODE_RUNNING_RED_BLUE]        = &WS2812FX::mode_running_red_blue;
+      _mode[FX_MODE_AURORA]                  = &WS2812FX::mode_aurora;
       _mode[FX_MODE_RUNNING_RANDOM]          = &WS2812FX::mode_running_random;
       _mode[FX_MODE_LARSON_SCANNER]          = &WS2812FX::mode_larson_scanner;
       _mode[FX_MODE_COMET]                   = &WS2812FX::mode_comet;
@@ -437,6 +466,10 @@ class WS2812FX {
       _mode[FX_MODE_CHUNCHUN]                = &WS2812FX::mode_chunchun;
       _mode[FX_MODE_DANCING_SHADOWS]         = &WS2812FX::mode_dancing_shadows;
       _mode[FX_MODE_WASHING_MACHINE]         = &WS2812FX::mode_washing_machine;
+      _mode[FX_MODE_CANDY_CANE]              = &WS2812FX::mode_candy_cane;
+      _mode[FX_MODE_BLENDS]                  = &WS2812FX::mode_blends;
+      _mode[FX_MODE_TV_SIMULATOR]            = &WS2812FX::mode_tv_simulator;
+      _mode[FX_MODE_DYNAMIC_SMOOTH]          = &WS2812FX::mode_dynamic_smooth;
 
       _brightness = DEFAULT_BRIGHTNESS;
       currentPalette = CRGBPalette16(CRGB::Black);
@@ -478,7 +511,9 @@ class WS2812FX {
       gammaCorrectCol = true,
       applyToAllSelected = true,
       segmentsAreIdentical(Segment* a, Segment* b),
-      setEffectConfig(uint8_t m, uint8_t s, uint8_t i, uint8_t p);
+      setEffectConfig(uint8_t m, uint8_t s, uint8_t i, uint8_t p),
+      // return true if the strip is being sent pixel updates
+      isUpdating(void);
 
     uint8_t
       mainSegment = 0,
@@ -567,7 +602,7 @@ class WS2812FX {
       mode_colorful(void),
       mode_traffic_light(void),
       mode_running_color(void),
-      mode_running_red_blue(void),
+      mode_aurora(void),
       mode_running_random(void),
       mode_larson_scanner(void),
       mode_comet(void),
@@ -643,7 +678,11 @@ class WS2812FX {
       mode_flow(void),
       mode_chunchun(void),
       mode_dancing_shadows(void),
-      mode_washing_machine(void);
+      mode_washing_machine(void),
+      mode_candy_cane(void),
+      mode_blends(void),
+      mode_tv_simulator(void),
+      mode_dynamic_smooth(void);
 
   private:
     NeoPixelWrapper *bus;
@@ -676,6 +715,7 @@ class WS2812FX {
       blink(uint32_t, uint32_t, bool strobe, bool),
       candle(bool),
       color_wipe(bool, bool),
+      dynamic(bool),
       scan(bool),
       theater_chase(uint32_t, uint32_t, bool),
       running_base(bool),
@@ -723,7 +763,7 @@ const char JSON_mode_names[] PROGMEM = R"=====([
 "Solid","Blink","Breathe","Wipe","Wipe Random","Random Colors","Sweep","Dynamic","Colorloop","Rainbow",
 "Scan","Scan Dual","Fade","Theater","Theater Rainbow","Running","Saw","Twinkle","Dissolve","Dissolve Rnd",
 "Sparkle","Sparkle Dark","Sparkle+","Strobe","Strobe Rainbow","Strobe Mega","Blink Rainbow","Android","Chase","Chase Random",
-"Chase Rainbow","Chase Flash","Chase Flash Rnd","Rainbow Runner","Colorful","Traffic Light","Sweep Random","Running 2","Red & Blue","Stream",
+"Chase Rainbow","Chase Flash","Chase Flash Rnd","Rainbow Runner","Colorful","Traffic Light","Sweep Random","Running 2","Aurora","Stream",
 "Scanner","Lighthouse","Fireworks","Rain","Merry Christmas","Fire Flicker","Gradient","Loading","Police","Police All",
 "Two Dots","Two Areas","Circus","Halloween","Tri Chase","Tri Wipe","Tri Fade","Lightning","ICU","Multi Comet",
 "Scanner Dual","Stream 2","Oscillate","Pride 2015","Juggle","Palette","Fire 2012","Colorwaves","Bpm","Fill Noise",
@@ -731,7 +771,7 @@ const char JSON_mode_names[] PROGMEM = R"=====([
 "Twinklefox","Twinklecat","Halloween Eyes","Solid Pattern","Solid Pattern Tri","Spots","Spots Fade","Glitter","Candle","Fireworks Starburst",
 "Fireworks 1D","Bouncing Balls","Sinelon","Sinelon Dual","Sinelon Rainbow","Popcorn","Drip","Plasma","Percent","Ripple Rainbow",
 "Heartbeat","Pacifica","Candle Multi", "Solid Glitter","Sunrise","Phased","Twinkleup","Noise Pal", "Sine","Phased Noise",
-"Flow","Chunchun","Dancing Shadows","Washing Machine"
+"Flow","Chunchun","Dancing Shadows","Washing Machine","Candy Cane","Blends","TV Simulator","Dynamic Smooth"
 ])=====";
 
 
@@ -741,7 +781,7 @@ const char JSON_palette_names[] PROGMEM = R"=====([
 "Pastel","Sunset 2","Beech","Vintage","Departure","Landscape","Beach","Sherbet","Hult","Hult 64",
 "Drywet","Jul","Grintage","Rewhi","Tertiary","Fire","Icefire","Cyane","Light Pink","Autumn",
 "Magenta","Magred","Yelmag","Yelblu","Orange & Teal","Tiamat","April Night","Orangery","C9","Sakura",
-"Aurora","Atlantica","C9 2","C9 New"
+"Aurora","Atlantica","C9 2","C9 New","Temperature","Aurora 2"
 ])=====";
 
 #endif

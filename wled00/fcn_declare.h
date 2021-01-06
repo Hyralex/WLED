@@ -15,7 +15,7 @@ void handleAlexa();
 void onAlexaChange(EspalexaDevice* dev);
 
 //blynk.cpp
-void initBlynk(const char* auth);
+void initBlynk(const char* auth, const char* host, uint16_t port);
 void handleBlynk();
 void updateBlynk();
 
@@ -34,6 +34,7 @@ void serializeConfigSec();
 //colors.cpp
 void colorFromUint32(uint32_t in, bool secondary = false);
 void colorFromUint24(uint32_t in, bool secondary = false);
+uint32_t colorFromRgbw(byte* rgbw);
 void relativeChangeWhite(int8_t amount, byte lowerBoundary = 0);
 void colorHStoRGB(uint16_t hue, byte sat, byte* rgb); //hue, sat to rgb
 void colorKtoRGB(uint16_t kelvin, byte* rgb);
@@ -235,6 +236,7 @@ void userLoop();
 void applyMacro(byte index);
 void deEEP();
 void deEEPSettings();
+void clearEEPROM();
 
 //wled_serial.cpp
 void handleSerial();
